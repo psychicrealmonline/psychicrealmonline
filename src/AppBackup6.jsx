@@ -1275,24 +1275,11 @@ export default function PsychicMMORPG() {
 
   function handleEnter({ userId, username, xp:sx, totalCorrect:sc, badges:sb2, bestStreak:sbs, isAdmin:ia, dailyCount:dc, bonusDecks:bd }) {
     setSession({ userId, username }); setXp(sx); setTotalCorrect(sc); setBadges(sb2); setBestStreak(sbs||0);
-    const ia2 = ia||false;
-    setIsAdmin(ia2);
+    setIsAdmin(ia||false);
+    setBonusDecks(bd||0);
     const count = dc||0;
-    const bonus = bd||0;
-    // If daily deck is used up but bonus decks available, consume one now and start fresh
-    if (!ia2 && count >= 25 && bonus > 0) {
-      setBonusDecks(bonus - 1);
-      setDailyCount(0);
-      setDeckLocked(false);
-      // Persist the consumption
-      const today = (()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); })();
-      sb.upsert("daily_guesses", { player_id:userId, guess_date:today, guess_count:0 }).catch(()=>{});
-      sb.rpc("consume_bonus_deck", { p_player_id: userId }).catch(()=>{});
-    } else {
-      setBonusDecks(bonus);
-      setDailyCount(count);
-      setDeckLocked(!ia2 && count >= 25 && bonus <= 0);
-    }
+    setDailyCount(count);
+    setDeckLocked(!(ia||false) && count >= 25 && (bd||0) <= 0);
     prevLevel.current=getLevelFromXP(sx); setScreen("game");
   }
 
@@ -1307,7 +1294,14 @@ export default function PsychicMMORPG() {
 
   async function persistDailyGuess(uid, newCount) {
     const today = (()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); })();
-    try { await sb.upsert("daily_guesses", { player_id:uid, guess_date:today, guess_count:newCount }); }
+    try {
+      if (newCount === 0) {
+        // Delete the row so next load treats this as a fresh deck with no prior guesses
+        await sb.delete("daily_guesses", `player_id=eq.${uid}&guess_date=eq.${today}`);
+      } else {
+        await sb.upsert("daily_guesses", { player_id:uid, guess_date:today, guess_count:newCount });
+      }
+    }
     catch(e) { console.error("daily guess save failed", e); }
   }
 
@@ -1337,12 +1331,11 @@ export default function PsychicMMORPG() {
     const newCount = dailyCount + 1;
     if (!isAdmin && newCount >= 25) {
       if (bonusDecks > 0) {
-        // Consume one bonus deck in-session: UI resets to fresh deck immediately
-        // DB stores 25 so on any restore it knows the daily deck was exhausted
-        // bonus_decks is decremented in DB via RPC
+        // consume one bonus deck: decrement in DB and reset daily count
         setBonusDecks(b => b - 1);
         setDailyCount(0);
-        persistDailyGuess(session?.userId, 25);
+        // Delete daily_guesses row and decrement bonus_decks in DB together
+        persistDailyGuess(session?.userId, 0);
         sb.rpc("consume_bonus_deck", { p_player_id: session?.userId }).catch(e => console.error("consume_bonus_deck failed", e));
       } else {
         setDailyCount(newCount);

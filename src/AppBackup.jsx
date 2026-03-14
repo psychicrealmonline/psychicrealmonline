@@ -4,13 +4,7 @@ const SB_URL  = "https://lehxnvfrulqizmldnlhk.supabase.co";
 const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxlaHhudmZydWxxaXptbGRubGhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNDEzOTIsImV4cCI6MjA4ODcxNzM5Mn0.ppyN6FHJ4ZMzAh-mL4pFRIQxNeq_RmJQOjI9qo6ww8c";
 
 // Pure fetch Supabase layer - no CDN script required
-let _token = sessionStorage.getItem("sb_token") || null;
-
-function setToken(t) {
-  _token = t;
-  if (t) sessionStorage.setItem("sb_token", t);
-  else sessionStorage.removeItem("sb_token");
-}
+let _token = null;
 
 function hdrs(tok, extra) {
   return { "Content-Type":"application/json", apikey: SB_ANON, Authorization:`Bearer ${tok||SB_ANON}`, ...extra };
@@ -23,7 +17,7 @@ const sb = {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.msg || d.error_description || d.message || `Sign-up error ${r.status}`);
-    if (d.access_token) setToken(d.access_token);
+    if (d.access_token) _token = d.access_token;
     return d;
   },
 
@@ -33,13 +27,13 @@ const sb = {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error_description || d.msg || d.message || `Login error ${r.status}`);
-    setToken(d.access_token);
+    _token = d.access_token;
     return d;
   },
 
   async signOut() {
     if (_token) await fetch(`${SB_URL}/auth/v1/logout`, { method:"POST", headers: hdrs(_token) }).catch(()=>{});
-    setToken(null);
+    _token = null;
   },
 
   async select(table, qs = "", single = false) {
@@ -56,22 +50,6 @@ const sb = {
     });
     if (!r.ok) { const e = await r.json().catch(()=>{}); throw new Error(e?.message || e?.hint || `insert failed ${r.status}`); }
     return r.json();
-  },
-
-  async delete(table, qs) {
-    const r = await fetch(`${SB_URL}/rest/v1/${table}?${qs}`, {
-      method:"DELETE", headers: hdrs(_token),
-    });
-    if (!r.ok) { const e = await r.json().catch(()=>{}); throw new Error(e?.message || `delete failed ${r.status}`); }
-    return true;
-  },
-
-  async rpc(fn, params) {
-    const r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {
-      method:"POST", headers: hdrs(_token), body: JSON.stringify(params),
-    });
-    if (!r.ok) { const e = await r.json().catch(()=>{}); throw new Error(e?.message || `rpc failed ${r.status}`); }
-    return r.status === 204 ? null : r.json();
   },
 
   async upsert(table, data) {
@@ -877,7 +855,7 @@ const DECK_PACKAGES = [
   { id:"deck50", label:"50 Decks", decks:50, price:"$100", priceNote:"$2.00 each", highlight:true  },
 ];
 
-function DeckCountdown({ userId }) {
+function DeckCountdown() {
   const [timeLeft, setTimeLeft] = useState("");
   const [purchaseMsg, setPurchaseMsg] = useState("");
 
@@ -903,7 +881,7 @@ function DeckCountdown({ userId }) {
       const res = await fetch("/api/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packageId: pkg.id, userId }),
+        body: JSON.stringify({ packageId: pkg.id, userId: session?.userId }),
       });
       const data = await res.json();
       if (data.url) {
@@ -1158,25 +1136,9 @@ const GAME_CSS = `
   @keyframes cardAura{0%,100%{box-shadow:0 0 20px rgba(100,180,255,0.2),0 0 40px rgba(100,180,255,0.1)}50%{box-shadow:0 0 40px rgba(100,180,255,0.5),0 0 80px rgba(100,180,255,0.2),0 0 120px rgba(100,180,255,0.1)}}
 `;
 
-async function restoreSession() {
-  const token = sessionStorage.getItem("sb_token");
-  if (!token) return null;
-  try {
-    // Verify token is still valid by fetching the user
-    const r = await fetch(`${SB_URL}/auth/v1/user`, {
-      headers: { apikey: SB_ANON, Authorization: `Bearer ${token}` }
-    });
-    if (!r.ok) { sessionStorage.removeItem("sb_token"); return null; }
-    const user = await r.json();
-    _token = token;
-    return user;
-  } catch(e) { return null; }
-}
-
 export default function PsychicMMORPG() {
   const [screen, setScreen]             = useState("auth");
   const [session, setSession]           = useState(null);
-  const [restoring, setRestoring]       = useState(true);
   const [isAdmin, setIsAdmin]           = useState(false);
   const [dailyCount, setDailyCount]     = useState(0);
   const [deckLocked, setDeckLocked]     = useState(false);
@@ -1206,38 +1168,26 @@ export default function PsychicMMORPG() {
   const saveTimer = useRef(null);
   const cardRef = useRef(null);
 
-  // Restore session after Stripe redirect or page refresh
-  useEffect(()=>{
-    (async()=>{
-      const user = await restoreSession();
-      if (user) {
-        const uid = user.id;
-        try {
-          const player  = await sb.select("players", `id=eq.${uid}&select=username`, true);
-          const stats   = await sb.select("player_stats", `player_id=eq.${uid}&select=xp,total_correct,badges,best_streak,bonus_decks`, true);
-          const adminRow= await sb.select("players", `id=eq.${uid}&select=is_admin`, true);
-          const today   = (()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); })();
-          const dg      = await sb.select("daily_guesses", `player_id=eq.${uid}&guess_date=eq.${today}`, true);
-          const dc      = dg?.guess_count || 0;
-          const bd      = stats?.bonus_decks || 0;
-          const ia      = adminRow?.is_admin || false;
-
-          // Check if returning from successful purchase
-          const params = new URLSearchParams(window.location.search);
-          const purchaseSuccess = params.get("purchase") === "success";
-          if (purchaseSuccess) window.history.replaceState({}, "", window.location.pathname);
-          if (params.get("purchase") === "cancelled") window.history.replaceState({}, "", window.location.pathname);
-
-          handleEnter({ userId:uid, username:player.username, xp:stats?.xp||0, totalCorrect:stats?.total_correct||0, badges:stats?.badges||[], bestStreak:stats?.best_streak||0, isAdmin:ia, dailyCount:dc, bonusDecks:bd });
-        } catch(e) { console.error("Session restore failed", e); }
-      }
-      setRestoring(false);
-    })();
-  }, []);
-
   useEffect(()=>{ drawNewCard(); },[]);
 
-
+  // Handle return from Stripe checkout
+  useEffect(()=>{
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("purchase") === "success") {
+      // Refresh bonus_decks from DB
+      (async()=>{
+        if (!session?.userId) return;
+        const stats = await sb.select("player_stats", `player_id=eq.${session.userId}&select=bonus_decks`, true);
+        const bd = stats?.bonus_decks || 0;
+        setBonusDecks(bd);
+        if (deckLocked && bd > 0) { setDeckLocked(false); setDailyCount(0); }
+        window.history.replaceState({}, "", window.location.pathname);
+      })();
+    }
+    if (params.get("purchase") === "cancelled") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [session]);
 
   const persistStats = useCallback((nxp, nc, nb, uid, nbs=0) => {
     if (!uid) return;
@@ -1275,24 +1225,11 @@ export default function PsychicMMORPG() {
 
   function handleEnter({ userId, username, xp:sx, totalCorrect:sc, badges:sb2, bestStreak:sbs, isAdmin:ia, dailyCount:dc, bonusDecks:bd }) {
     setSession({ userId, username }); setXp(sx); setTotalCorrect(sc); setBadges(sb2); setBestStreak(sbs||0);
-    const ia2 = ia||false;
-    setIsAdmin(ia2);
+    setIsAdmin(ia||false);
+    setBonusDecks(bd||0);
     const count = dc||0;
-    const bonus = bd||0;
-    // If daily deck is used up but bonus decks available, consume one now and start fresh
-    if (!ia2 && count >= 25 && bonus > 0) {
-      setBonusDecks(bonus - 1);
-      setDailyCount(0);
-      setDeckLocked(false);
-      // Persist the consumption
-      const today = (()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); })();
-      sb.upsert("daily_guesses", { player_id:userId, guess_date:today, guess_count:0 }).catch(()=>{});
-      sb.rpc("consume_bonus_deck", { p_player_id: userId }).catch(()=>{});
-    } else {
-      setBonusDecks(bonus);
-      setDailyCount(count);
-      setDeckLocked(!ia2 && count >= 25 && bonus <= 0);
-    }
+    setDailyCount(count);
+    setDeckLocked(!(ia||false) && count >= 25 && (bd||0) <= 0);
     prevLevel.current=getLevelFromXP(sx); setScreen("game");
   }
 
@@ -1335,24 +1272,18 @@ export default function PsychicMMORPG() {
       setStreak(0); setMessage(`It was ${card.label}`); audio.playWrong();
     }
     const newCount = dailyCount + 1;
+    setDailyCount(newCount);
     if (!isAdmin && newCount >= 25) {
       if (bonusDecks > 0) {
-        // Consume one bonus deck in-session: UI resets to fresh deck immediately
-        // DB stores 25 so on any restore it knows the daily deck was exhausted
-        // bonus_decks is decremented in DB via RPC
+        // consume one bonus deck and reset daily count
         setBonusDecks(b => b - 1);
         setDailyCount(0);
-        persistDailyGuess(session?.userId, 25);
-        sb.rpc("consume_bonus_deck", { p_player_id: session?.userId }).catch(e => console.error("consume_bonus_deck failed", e));
+        persistDailyGuess(session?.userId, 0);
       } else {
-        setDailyCount(newCount);
-        persistDailyGuess(session?.userId, newCount);
         setDeckLocked(true);
       }
-    } else {
-      setDailyCount(newCount);
-      persistDailyGuess(session?.userId, newCount);
     }
+    persistDailyGuess(session?.userId, newCount);
     setTimeout(drawNewCard,1600);
   }
 
@@ -1362,7 +1293,6 @@ export default function PsychicMMORPG() {
   const xpPct     = Math.min(100,(xpInLevel/xpNeeded)*100);
   const earnedBadgeObjs = BADGES.filter(b=>badges.includes(b.id));
 
-  if (restoring) return <div style={{minHeight:"100vh",background:"#030810"}}/>;
   if (screen==="auth") return <AuthScreen onEnter={handleEnter}/>;
 
   return (
@@ -1392,19 +1322,12 @@ export default function PsychicMMORPG() {
             </div>
           </div>
           <div style={{display:"flex",gap:"0.6rem",alignItems:"center",flexWrap:"wrap"}}>
-            {!isAdmin&&(()=>{
-              const left=Math.max(0,25-dailyCount);
-              const totalLeft = left + (bonusDecks * 25);
-              const bg=left===0&&bonusDecks===0?"linear-gradient(135deg,#5a0a0a,#aa1a1a)":left<=5&&bonusDecks===0?"linear-gradient(135deg,#5a3a00,#aa6a00)":"linear-gradient(135deg,#0a3a1a,#1a7a3a)";
-              const border=left===0&&bonusDecks===0?"#ff4444":left<=5&&bonusDecks===0?"#ffaa00":"#22aa55";
-              return (
-                <div style={{display:"flex",alignItems:"center",gap:"0.5rem",background:bg,border:`1px solid ${border}`,borderRadius:8,padding:"0.3rem 0.7rem"}}>
-                  <span style={{fontFamily:"'Cinzel',serif",fontSize:"0.7rem",color:"#c0d8f0",letterSpacing:"0.06em"}}>DECK</span>
-                  <span style={{fontFamily:"'Cinzel',serif",fontSize:"0.8rem",fontWeight:700,color:"#c0d8f0"}}>{left}/25</span>
-                  {bonusDecks>0&&<span style={{fontFamily:"'Cinzel',serif",fontSize:"0.7rem",color:"#ffcc44",marginLeft:"0.2rem"}}>+{bonusDecks} 🃏</span>}
-                </div>
-              );
-            })()}
+            {!isAdmin&&(()=>{ const left=Math.max(0,25-dailyCount); const bg=left===0?"linear-gradient(135deg,#5a0a0a,#aa1a1a)":left<=5?"linear-gradient(135deg,#5a3a00,#aa6a00)":"linear-gradient(135deg,#0a3a1a,#1a7a3a)"; const border=left===0?"#ff4444":left<=5?"#ffaa00":"#22aa55"; return (
+              <div style={{display:"flex",alignItems:"center",gap:"0.5rem",background:bg,border:`1px solid ${border}`,borderRadius:8,padding:"0.3rem 0.7rem"}}>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:"0.7rem",color:"#c0d8f0",letterSpacing:"0.06em"}}>DECK</span>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:"0.8rem",fontWeight:700,color:"#c0d8f0"}}>{left}/25</span>
+              </div>
+            ); })()}
             <button onClick={()=>setShowLB(true)} style={{background:"linear-gradient(135deg,#1a3a6a,#2a5a8a)",border:"1px solid #3a6a9a",borderRadius:8,padding:"0.4rem 0.8rem",color:"#a8edea",fontFamily:"'Cinzel',serif",fontSize:"0.8rem",cursor:"pointer"}}>🏆 Ranks</button>
             <button onClick={()=>setShowSignOutConfirm(true)} style={{background:"linear-gradient(135deg,#3a1020,#6a1530)",border:"1px solid #aa3355",borderRadius:8,padding:"0.4rem 0.8rem",color:"#ff8899",fontFamily:"'Cinzel',serif",fontSize:"0.8rem",cursor:"pointer",fontWeight:600,letterSpacing:"0.05em",boxShadow:"0 0 12px rgba(170,51,85,0.3)"}}>Sign Out</button>
           </div>
@@ -1412,7 +1335,7 @@ export default function PsychicMMORPG() {
 
         {card&&(
           <div style={{width:"100%",maxWidth:680,background:"linear-gradient(160deg,rgba(7,16,34,0.9),rgba(15,30,64,0.9))",backdropFilter:"blur(20px)",border:"1px solid #1a3a6a",borderRadius:24,padding:"2rem",boxShadow:"0 0 60px rgba(20,60,150,0.3)",position:"relative",overflow:"hidden"}}>
-            {deckLocked&&<DeckCountdown userId={session?.userId}/>}
+            {deckLocked&&<DeckCountdown/>}
             <ParticleBurst trigger={burstTrig} correct={burstOk}/>
             <FloatingXP trigger={xpTrig} xpEventRef={xpEventRef}/>
             <RuneCircle/>

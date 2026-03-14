@@ -58,22 +58,6 @@ const sb = {
     return r.json();
   },
 
-  async delete(table, qs) {
-    const r = await fetch(`${SB_URL}/rest/v1/${table}?${qs}`, {
-      method:"DELETE", headers: hdrs(_token),
-    });
-    if (!r.ok) { const e = await r.json().catch(()=>{}); throw new Error(e?.message || `delete failed ${r.status}`); }
-    return true;
-  },
-
-  async rpc(fn, params) {
-    const r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {
-      method:"POST", headers: hdrs(_token), body: JSON.stringify(params),
-    });
-    if (!r.ok) { const e = await r.json().catch(()=>{}); throw new Error(e?.message || `rpc failed ${r.status}`); }
-    return r.status === 204 ? null : r.json();
-  },
-
   async upsert(table, data) {
     const r = await fetch(`${SB_URL}/rest/v1/${table}`, {
       method:"POST", headers: hdrs(_token, { Prefer:"resolution=merge-duplicates,return=representation" }), body: JSON.stringify(data),
@@ -1275,24 +1259,11 @@ export default function PsychicMMORPG() {
 
   function handleEnter({ userId, username, xp:sx, totalCorrect:sc, badges:sb2, bestStreak:sbs, isAdmin:ia, dailyCount:dc, bonusDecks:bd }) {
     setSession({ userId, username }); setXp(sx); setTotalCorrect(sc); setBadges(sb2); setBestStreak(sbs||0);
-    const ia2 = ia||false;
-    setIsAdmin(ia2);
+    setIsAdmin(ia||false);
+    setBonusDecks(bd||0);
     const count = dc||0;
-    const bonus = bd||0;
-    // If daily deck is used up but bonus decks available, consume one now and start fresh
-    if (!ia2 && count >= 25 && bonus > 0) {
-      setBonusDecks(bonus - 1);
-      setDailyCount(0);
-      setDeckLocked(false);
-      // Persist the consumption
-      const today = (()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); })();
-      sb.upsert("daily_guesses", { player_id:userId, guess_date:today, guess_count:0 }).catch(()=>{});
-      sb.rpc("consume_bonus_deck", { p_player_id: userId }).catch(()=>{});
-    } else {
-      setBonusDecks(bonus);
-      setDailyCount(count);
-      setDeckLocked(!ia2 && count >= 25 && bonus <= 0);
-    }
+    setDailyCount(count);
+    setDeckLocked(!(ia||false) && count >= 25 && (bd||0) <= 0);
     prevLevel.current=getLevelFromXP(sx); setScreen("game");
   }
 
@@ -1335,24 +1306,18 @@ export default function PsychicMMORPG() {
       setStreak(0); setMessage(`It was ${card.label}`); audio.playWrong();
     }
     const newCount = dailyCount + 1;
+    setDailyCount(newCount);
     if (!isAdmin && newCount >= 25) {
       if (bonusDecks > 0) {
-        // Consume one bonus deck in-session: UI resets to fresh deck immediately
-        // DB stores 25 so on any restore it knows the daily deck was exhausted
-        // bonus_decks is decremented in DB via RPC
+        // consume one bonus deck and reset daily count
         setBonusDecks(b => b - 1);
         setDailyCount(0);
-        persistDailyGuess(session?.userId, 25);
-        sb.rpc("consume_bonus_deck", { p_player_id: session?.userId }).catch(e => console.error("consume_bonus_deck failed", e));
+        persistDailyGuess(session?.userId, 0);
       } else {
-        setDailyCount(newCount);
-        persistDailyGuess(session?.userId, newCount);
         setDeckLocked(true);
       }
-    } else {
-      setDailyCount(newCount);
-      persistDailyGuess(session?.userId, newCount);
     }
+    persistDailyGuess(session?.userId, newCount);
     setTimeout(drawNewCard,1600);
   }
 
@@ -1392,19 +1357,12 @@ export default function PsychicMMORPG() {
             </div>
           </div>
           <div style={{display:"flex",gap:"0.6rem",alignItems:"center",flexWrap:"wrap"}}>
-            {!isAdmin&&(()=>{
-              const left=Math.max(0,25-dailyCount);
-              const totalLeft = left + (bonusDecks * 25);
-              const bg=left===0&&bonusDecks===0?"linear-gradient(135deg,#5a0a0a,#aa1a1a)":left<=5&&bonusDecks===0?"linear-gradient(135deg,#5a3a00,#aa6a00)":"linear-gradient(135deg,#0a3a1a,#1a7a3a)";
-              const border=left===0&&bonusDecks===0?"#ff4444":left<=5&&bonusDecks===0?"#ffaa00":"#22aa55";
-              return (
-                <div style={{display:"flex",alignItems:"center",gap:"0.5rem",background:bg,border:`1px solid ${border}`,borderRadius:8,padding:"0.3rem 0.7rem"}}>
-                  <span style={{fontFamily:"'Cinzel',serif",fontSize:"0.7rem",color:"#c0d8f0",letterSpacing:"0.06em"}}>DECK</span>
-                  <span style={{fontFamily:"'Cinzel',serif",fontSize:"0.8rem",fontWeight:700,color:"#c0d8f0"}}>{left}/25</span>
-                  {bonusDecks>0&&<span style={{fontFamily:"'Cinzel',serif",fontSize:"0.7rem",color:"#ffcc44",marginLeft:"0.2rem"}}>+{bonusDecks} 🃏</span>}
-                </div>
-              );
-            })()}
+            {!isAdmin&&(()=>{ const left=Math.max(0,25-dailyCount); const bg=left===0?"linear-gradient(135deg,#5a0a0a,#aa1a1a)":left<=5?"linear-gradient(135deg,#5a3a00,#aa6a00)":"linear-gradient(135deg,#0a3a1a,#1a7a3a)"; const border=left===0?"#ff4444":left<=5?"#ffaa00":"#22aa55"; return (
+              <div style={{display:"flex",alignItems:"center",gap:"0.5rem",background:bg,border:`1px solid ${border}`,borderRadius:8,padding:"0.3rem 0.7rem"}}>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:"0.7rem",color:"#c0d8f0",letterSpacing:"0.06em"}}>DECK</span>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:"0.8rem",fontWeight:700,color:"#c0d8f0"}}>{left}/25</span>
+              </div>
+            ); })()}
             <button onClick={()=>setShowLB(true)} style={{background:"linear-gradient(135deg,#1a3a6a,#2a5a8a)",border:"1px solid #3a6a9a",borderRadius:8,padding:"0.4rem 0.8rem",color:"#a8edea",fontFamily:"'Cinzel',serif",fontSize:"0.8rem",cursor:"pointer"}}>🏆 Ranks</button>
             <button onClick={()=>setShowSignOutConfirm(true)} style={{background:"linear-gradient(135deg,#3a1020,#6a1530)",border:"1px solid #aa3355",borderRadius:8,padding:"0.4rem 0.8rem",color:"#ff8899",fontFamily:"'Cinzel',serif",fontSize:"0.8rem",cursor:"pointer",fontWeight:600,letterSpacing:"0.05em",boxShadow:"0 0 12px rgba(170,51,85,0.3)"}}>Sign Out</button>
           </div>
