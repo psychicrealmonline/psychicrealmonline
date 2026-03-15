@@ -992,8 +992,8 @@ function AuthScreen({ onEnter }) {
       const uid = authData.user?.id || authData.id;
       if (!uid) {
         setLoad(false);
-        setInfo("Account created! Check your email to confirm, then sign in.");
-        switchMode("login");
+        setInfo("Account created! Please check your email and click the confirmation link to begin playing.");
+        switchMode("login", true);
         return;
       }
 
@@ -1002,8 +1002,8 @@ function AuthScreen({ onEnter }) {
       if (authData.access_token) {
         onEnter({ userId:uid, username, xp:0, totalCorrect:0, badges:[], bestStreak:0, isAdmin:false, dailyCount:0, bonusDecks:0 });
       } else {
-        setInfo("Account created! Check your email to confirm, then sign in.");
-        switchMode("login");
+        setInfo("Account created! Please check your email and click the confirmation link to begin playing.");
+        switchMode("login", true);
       }
     } catch(e) {
       setError(e.message || "Registration failed. Please try again.");
@@ -1043,7 +1043,7 @@ function AuthScreen({ onEnter }) {
     setLoad(false);
   }
 
-  function switchMode(m) { setMode(m); setError(""); setInfo(""); setF({identifier:"",email:"",password:"",confirm:""}); }
+  function switchMode(m, keepInfo=false) { setMode(m); setError(""); if (!keepInfo) setInfo(""); setF({identifier:"",email:"",password:"",confirm:""}); }
 
   const inp = { width:"100%", padding:"0.85rem 1rem", borderRadius:10, background:"rgba(255,255,255,0.05)", border:"1px solid #2a4a8a", color:"#c8d8f0", fontSize:"0.95rem", fontFamily:"'Crimson Text',serif", outline:"none", marginBottom:"0.8rem", transition:"border-color 0.2s" };
   const lbl = { display:"block", color:"#6a9aca", fontSize:"0.75rem", marginBottom:"0.3rem", fontFamily:"'Cinzel',serif", letterSpacing:"0.06em" };
@@ -1094,6 +1094,7 @@ function AuthScreen({ onEnter }) {
               placeholder="Choose a unique name (2-20 chars)" style={inp}/>
             <label style={lbl}>EMAIL ADDRESS</label>
             <input type="email" value={f.email} onChange={e=>upd("email",e.target.value)} placeholder="your@email.com" style={inp}/>
+            <div style={{fontSize:"0.72rem",color:"#6a9aba",marginTop:"-0.4rem",marginBottom:"0.8rem",fontFamily:"'Cinzel',serif",letterSpacing:"0.04em"}}>📧 A confirmation link will be sent to this address before you can play.</div>
           </>}
 
           <label style={lbl}>PASSWORD</label>
@@ -1206,10 +1207,36 @@ export default function PsychicMMORPG() {
   const saveTimer = useRef(null);
   const cardRef = useRef(null);
 
-  // Restore session after Stripe redirect or page refresh
+  // Restore session after Stripe redirect, page refresh, or email confirmation
   useEffect(()=>{
     (async()=>{
-      const user = await restoreSession();
+      let user = null;
+
+      // Check for email confirmation token in URL hash (e.g. #access_token=...&type=signup)
+      const hash = window.location.hash;
+      if (hash && hash.includes("access_token")) {
+        const hashParams = new URLSearchParams(hash.replace("#", ""));
+        const accessToken = hashParams.get("access_token");
+        const tokenType = hashParams.get("type");
+        if (accessToken && tokenType === "signup") {
+          try {
+            // Verify and store the token
+            const r = await fetch(`${SB_URL}/auth/v1/user`, {
+              headers: { apikey: SB_ANON, Authorization: `Bearer ${accessToken}` }
+            });
+            if (r.ok) {
+              setToken(accessToken);
+              user = await r.json();
+              // Clear the hash from the URL
+              window.history.replaceState({}, "", window.location.pathname);
+            }
+          } catch(e) { console.error("Email confirmation failed", e); }
+        }
+      }
+
+      // Fall back to stored session token
+      if (!user) user = await restoreSession();
+
       if (user) {
         const uid = user.id;
         try {
@@ -1224,9 +1251,9 @@ export default function PsychicMMORPG() {
 
           // Check if returning from successful purchase
           const params = new URLSearchParams(window.location.search);
-          const purchaseSuccess = params.get("purchase") === "success";
-          if (purchaseSuccess) window.history.replaceState({}, "", window.location.pathname);
-          if (params.get("purchase") === "cancelled") window.history.replaceState({}, "", window.location.pathname);
+          if (params.get("purchase") === "success" || params.get("purchase") === "cancelled") {
+            window.history.replaceState({}, "", window.location.pathname);
+          }
 
           handleEnter({ userId:uid, username:player.username, xp:stats?.xp||0, totalCorrect:stats?.total_correct||0, badges:stats?.badges||[], bestStreak:stats?.best_streak||0, isAdmin:ia, dailyCount:dc, bonusDecks:bd });
         } catch(e) { console.error("Session restore failed", e); }
