@@ -964,6 +964,20 @@ function AuthScreen({ onEnter }) {
   const [showPw, setShowPw] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
   const turnstileRef = useRef(null);
+
+  function resetTurnstile() {
+    setTurnstileToken("");
+    if (window.turnstile && turnstileRef.current) {
+      turnstileRef.current.innerHTML = "";
+      window.turnstile.render(turnstileRef.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        callback: (token) => setTurnstileToken(token),
+        "expired-callback": () => resetTurnstile(),
+        "error-callback": () => resetTurnstile(),
+        theme: "dark",
+      });
+    }
+  }
   const [showCf, setShowCf] = useState(false);
 
   const upd = (k,v) => { setF(p=>({...p,[k]:v})); setError(""); setInfo(""); };
@@ -988,8 +1002,8 @@ function AuthScreen({ onEnter }) {
         window.turnstile.render(turnstileRef.current, {
           sitekey: TURNSTILE_SITE_KEY,
           callback: (token) => setTurnstileToken(token),
-          "expired-callback": () => setTurnstileToken(""),
-          "error-callback": () => setTurnstileToken(""),
+          "expired-callback": () => resetTurnstile(),
+          "error-callback": () => resetTurnstile(),
           theme: "dark",
         });
       }
@@ -1041,6 +1055,7 @@ function AuthScreen({ onEnter }) {
       }
     } catch(e) {
       setError(e.message || "Registration failed. Please try again.");
+      resetTurnstile();
     }
     setLoad(false);
   }
@@ -1064,6 +1079,7 @@ function AuthScreen({ onEnter }) {
       }
 
       const authData = await sb.signIn(loginEmail, f.password, turnstileToken);
+      resetTurnstile();
       const uid = authData.user?.id;
       const player = await sb.select("players", `id=eq.${uid}&select=username`, true);
       const stats  = await sb.select("player_stats", `player_id=eq.${uid}&select=xp,total_correct,badges,best_streak,bonus_decks`, true);
@@ -1074,6 +1090,7 @@ function AuthScreen({ onEnter }) {
       onEnter({ userId:uid, username:player.username, xp:stats?.xp||0, totalCorrect:stats?.total_correct||0, badges:stats?.badges||[], bestStreak:stats?.best_streak||0, isAdmin:adminRow?.is_admin||false, dailyCount:dc, bonusDecks:stats?.bonus_decks||0 });
     } catch(e) {
       setError(e.message || "Incorrect credentials. Please try again.");
+      resetTurnstile();
     }
     setLoad(false);
   }
