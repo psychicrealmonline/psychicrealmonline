@@ -806,7 +806,7 @@ function LeaderboardRows({ rows, currentUsername, mode }) {
           </div>
         </div>
       ))}
-      {myRank>0&&<div style={{textAlign:"center",color:"#c0d8f0",marginTop:"1rem",fontSize:"0.88rem"}}>Your rank: #{myRank}</div>}
+      {myRank>0&&<div style={{textAlign:"center",color:"#c0d8f0",marginTop:"1rem",fontSize:"1.1rem",fontFamily:"'Cinzel',serif",fontWeight:600}}>Your rank: #{myRank}</div>}
     </>
   );
 }
