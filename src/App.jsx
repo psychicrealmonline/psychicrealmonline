@@ -28,9 +28,9 @@ const sb = {
     return d;
   },
 
-  async signIn(email, password) {
+  async signIn(email, password, captchaToken) {
     const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, {
-      method:"POST", headers: hdrs(), body: JSON.stringify({ email, password }),
+      method:"POST", headers: hdrs(), body: JSON.stringify({ email, password, gotrue_meta_security: { captcha_token: captchaToken } }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error_description || d.msg || d.message || `Login error ${r.status}`);
@@ -985,10 +985,10 @@ function AuthScreen({ onEnter }) {
   }, []);
 
   useEffect(()=>{
-    if (mode !== "register") return;
-    // Render Turnstile widget when switching to register mode
+    // Render Turnstile widget on both login and register
     const render = () => {
-      if (window.turnstile && turnstileRef.current && !turnstileRef.current.hasChildNodes()) {
+      if (window.turnstile && turnstileRef.current) {
+        turnstileRef.current.innerHTML = "";
         window.turnstile.render(turnstileRef.current, {
           sitekey: TURNSTILE_SITE_KEY,
           callback: (token) => setTurnstileToken(token),
@@ -998,13 +998,11 @@ function AuthScreen({ onEnter }) {
         });
       }
     };
-    // Wait for script to load if needed
     if (window.turnstile) { render(); }
     else {
       const interval = setInterval(()=>{ if (window.turnstile) { render(); clearInterval(interval); } }, 200);
       return ()=>clearInterval(interval);
     }
-    // Reset widget when leaving register mode
     return ()=>{ if (turnstileRef.current) turnstileRef.current.innerHTML = ""; setTurnstileToken(""); };
   }, [mode]);
   const pw  = checkPasswordStrength(f.password);
@@ -1056,6 +1054,7 @@ function AuthScreen({ onEnter }) {
     if (!identifier)  return setError("Please enter your psychic name or email.");
     if (!f.password)  return setError("Please enter your password.");
 
+    if (!turnstileToken) return setError("Please complete the security check.");
     setLoad(true); setError("");
     try {
       const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
@@ -1068,7 +1067,7 @@ function AuthScreen({ onEnter }) {
         loginEmail = player.email;
       }
 
-      const authData = await sb.signIn(loginEmail, f.password);
+      const authData = await sb.signIn(loginEmail, f.password, turnstileToken);
       const uid = authData.user?.id;
       const player = await sb.select("players", `id=eq.${uid}&select=username`, true);
       const stats  = await sb.select("player_stats", `player_id=eq.${uid}&select=xp,total_correct,badges,best_streak,bonus_decks`, true);
@@ -1170,7 +1169,7 @@ function AuthScreen({ onEnter }) {
             </>
           )}
 
-          {mode==="register"&&<div ref={turnstileRef} style={{marginTop:"1rem",display:"flex",justifyContent:"center"}}/>}
+          <div ref={turnstileRef} style={{marginTop:"1rem",display:"flex",justifyContent:"center"}}/>
           <button onClick={mode==="login"?login:register} disabled={loading}
             style={{width:"100%",padding:"0.9rem",borderRadius:12,background:loading?"rgba(42,90,130,0.5)":"linear-gradient(135deg,#1a3a7a,#2a6aaa)",border:"1px solid #3a7aba",color:"#a8edea",fontFamily:"'Cinzel',serif",fontSize:"0.95rem",fontWeight:700,cursor:loading?"not-allowed":"pointer",letterSpacing:"0.08em",transition:"all 0.2s",marginTop:"1.8rem",marginBottom:"1rem"}}>
             {loading?"...":mode==="login"?"ENTER THE REALM":"CREATE ACCOUNT"}
