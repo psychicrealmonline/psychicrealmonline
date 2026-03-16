@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 const SB_URL  = "https://lehxnvfrulqizmldnlhk.supabase.co";
 const TURNSTILE_SITE_KEY = "0x4AAAAAACrYiKNFSXVBbSgG";
+const TURNSTILE_ENABLED  = import.meta.env.VITE_TURNSTILE_ENABLED !== "false";
 const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxlaHhudmZydWxxaXptbGRubGhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNDEzOTIsImV4cCI6MjA4ODcxNzM5Mn0.ppyN6FHJ4ZMzAh-mL4pFRIQxNeq_RmJQOjI9qo6ww8c";
 
 // Pure fetch Supabase layer - no CDN script required
@@ -1028,7 +1029,7 @@ function AuthScreen({ onEnter }) {
     if (!pw.strong)                            return setError("Password must meet all 5 requirements.");
     if (f.password !== f.confirm)              return setError("Passwords do not match.");
 
-    if (!turnstileToken) return setError("Please complete the security check.");
+    if (TURNSTILE_ENABLED && !turnstileToken) return setError("Security check failed. Try disabling any ad blockers and refresh the page.");
     setLoad(true); setError("");
     try {
       // Check username taken
@@ -1065,17 +1066,27 @@ function AuthScreen({ onEnter }) {
     if (!identifier)  return setError("Please enter your psychic name or email.");
     if (!f.password)  return setError("Please enter your password.");
 
-    if (!turnstileToken) return setError("Please complete the security check.");
     setLoad(true); setError("");
     try {
       const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
       let loginEmail = identifier.toLowerCase();
 
-      // If identifier is a username, look up the associated email
+      // If identifier is a username, look up email and check turnstile_exempt
       if (!isEmail) {
-        const player = await sb.select("players", `username=eq.${encodeURIComponent(identifier)}&select=email`, true);
+        const player = await sb.select("players", `username=eq.${encodeURIComponent(identifier)}&select=email,turnstile_exempt`, true);
         if (!player || !player.email) { setLoad(false); return setError("No account found with that psychic name."); }
         loginEmail = player.email;
+        if (TURNSTILE_ENABLED && !player.turnstile_exempt && !turnstileToken) {
+          setLoad(false);
+          return setError("Security check failed. Try disabling any ad blockers and refresh the page.");
+        }
+      } else {
+        // Email login — check exempt status by email
+        const player = await sb.select("players", `email=eq.${encodeURIComponent(loginEmail)}&select=turnstile_exempt`, true);
+        if (TURNSTILE_ENABLED && !player?.turnstile_exempt && !turnstileToken) {
+          setLoad(false);
+          return setError("Security check failed. Try disabling any ad blockers and refresh the page.");
+        }
       }
 
       const authData = await sb.signIn(loginEmail, f.password, turnstileToken);
