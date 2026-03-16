@@ -631,8 +631,6 @@ function NovaSpell({ fire }) {
       {hue:180, speed:6},
       {hue:200, speed:4},
       {hue:160, speed:9},
-      {hue:220, speed:3},
-      {hue:140, speed:12},
     ];
     ringDefs.forEach((rd,i)=>{
       setTimeout(()=>{
@@ -640,9 +638,9 @@ function NovaSpell({ fire }) {
       }, i*60);
     });
 
-    // Burst 1: radial spray — 80 particles flying outward
-    for (let i=0; i<80; i++) {
-      const angle = (i/80)*Math.PI*2 + Math.random()*0.2;
+    // Burst 1: radial spray — 40 particles flying outward
+    for (let i=0; i<40; i++) {
+      const angle = (i/40)*Math.PI*2 + Math.random()*0.2;
       const speed = 2+Math.random()*8;
       const hue = 160+Math.random()*80;
       particles.current.push({
@@ -655,8 +653,8 @@ function NovaSpell({ fire }) {
       });
     }
 
-    // Burst 2: upward fountain arc — 60 particles
-    for (let i=0; i<60; i++) {
+    // Burst 2: upward fountain arc — 30 particles
+    for (let i=0; i<30; i++) {
       const angle = -Math.PI/2 + (Math.random()-0.5)*Math.PI*1.4;
       const speed = 3+Math.random()*10;
       const hue = 180+Math.random()*60;
@@ -671,7 +669,7 @@ function NovaSpell({ fire }) {
     }
 
     // Burst 3: spinning star sparks — 40 large bright ones
-    for (let i=0; i<40; i++) {
+    for (let i=0; i<20; i++) {
       const angle = Math.random()*Math.PI*2;
       const speed = 1+Math.random()*5;
       particles.current.push({
@@ -685,21 +683,19 @@ function NovaSpell({ fire }) {
       });
     }
 
-    // Burst 4: delayed second wave at 200ms
-    setTimeout(()=>{
-      for (let i=0; i<50; i++) {
-        const angle = Math.random()*Math.PI*2;
-        const speed = 4+Math.random()*9;
-        particles.current.push({
-          x:cx, y:cy,
-          vx:Math.cos(angle)*speed,
-          vy:Math.sin(angle)*speed,
-          size:1+Math.random()*3,
-          life:0.9, decay:0.014+Math.random()*0.01,
-          gravity:0.05, hue:160+Math.random()*80,
-        });
-      }
-    }, 200);
+    // Burst 4: second wave
+    for (let i=0; i<25; i++) {
+      const angle = Math.random()*Math.PI*2;
+      const speed = 4+Math.random()*9;
+      particles.current.push({
+        x:cx, y:cy,
+        vx:Math.cos(angle)*speed,
+        vy:Math.sin(angle)*speed,
+        size:1+Math.random()*3,
+        life:0.9, decay:0.014+Math.random()*0.01,
+        gravity:0.05, hue:160+Math.random()*80,
+      });
+    }
 
   },[fire]);
 
