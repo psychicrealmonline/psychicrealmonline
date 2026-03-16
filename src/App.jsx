@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 const SB_URL  = "https://lehxnvfrulqizmldnlhk.supabase.co";
+const TURNSTILE_SITE_KEY = "0x4AAAAAACrYiKNFSXVBbSgG";
 const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxlaHhudmZydWxxaXptbGRubGhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNDEzOTIsImV4cCI6MjA4ODcxNzM5Mn0.ppyN6FHJ4ZMzAh-mL4pFRIQxNeq_RmJQOjI9qo6ww8c";
 
 // Pure fetch Supabase layer - no CDN script required
@@ -17,9 +18,9 @@ function hdrs(tok, extra) {
 }
 
 const sb = {
-  async signUp(email, password, username) {
+  async signUp(email, password, username, captchaToken) {
     const r = await fetch(`${SB_URL}/auth/v1/signup`, {
-      method:"POST", headers: hdrs(), body: JSON.stringify({ email, password, data: { username } }),
+      method:"POST", headers: hdrs(), body: JSON.stringify({ email, password, data: { username }, gotrue_meta_security: { captcha_token: captchaToken } }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.msg || d.error_description || d.message || `Sign-up error ${r.status}`);
@@ -965,9 +966,47 @@ function AuthScreen({ onEnter }) {
   const [info, setInfo]     = useState("");
   const [loading, setLoad]  = useState(false);
   const [showPw, setShowPw] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef(null);
   const [showCf, setShowCf] = useState(false);
 
   const upd = (k,v) => { setF(p=>({...p,[k]:v})); setError(""); setInfo(""); };
+
+  useEffect(()=>{
+    // Load Turnstile script
+    if (!document.getElementById("turnstile-script")) {
+      const script = document.createElement("script");
+      script.id = "turnstile-script";
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+  }, []);
+
+  useEffect(()=>{
+    if (mode !== "register") return;
+    // Render Turnstile widget when switching to register mode
+    const render = () => {
+      if (window.turnstile && turnstileRef.current && !turnstileRef.current.hasChildNodes()) {
+        window.turnstile.render(turnstileRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: (token) => setTurnstileToken(token),
+          "expired-callback": () => setTurnstileToken(""),
+          "error-callback": () => setTurnstileToken(""),
+          theme: "dark",
+        });
+      }
+    };
+    // Wait for script to load if needed
+    if (window.turnstile) { render(); }
+    else {
+      const interval = setInterval(()=>{ if (window.turnstile) { render(); clearInterval(interval); } }, 200);
+      return ()=>clearInterval(interval);
+    }
+    // Reset widget when leaving register mode
+    return ()=>{ if (turnstileRef.current) turnstileRef.current.innerHTML = ""; setTurnstileToken(""); };
+  }, [mode]);
   const pw  = checkPasswordStrength(f.password);
   const SC  = ["#ff4455","#ff7744","#ffaa00","#88cc44","#00ffcc"][pw.score-1]||"#2a4a6a";
   const SL  = ["","Weak","Fair","Good","Strong","Very Strong"][pw.score]||"";
@@ -981,6 +1020,7 @@ function AuthScreen({ onEnter }) {
     if (!pw.strong)                            return setError("Password must meet all 5 requirements.");
     if (f.password !== f.confirm)              return setError("Passwords do not match.");
 
+    if (!turnstileToken) return setError("Please complete the security check.");
     setLoad(true); setError("");
     try {
       // Check username taken
@@ -988,7 +1028,7 @@ function AuthScreen({ onEnter }) {
       if (existing) { setLoad(false); return setError("That username is already taken."); }
 
       // Create auth account (Supabase hashes password with bcrypt server-side)
-      const authData = await sb.signUp(f.email.trim().toLowerCase(), f.password, username);
+      const authData = await sb.signUp(f.email.trim().toLowerCase(), f.password, username, turnstileToken);
       const uid = authData.user?.id || authData.id;
       if (!uid) {
         setLoad(false);
@@ -1130,6 +1170,7 @@ function AuthScreen({ onEnter }) {
             </>
           )}
 
+          {mode==="register"&&<div ref={turnstileRef} style={{marginTop:"1rem",display:"flex",justifyContent:"center"}}/>}
           <button onClick={mode==="login"?login:register} disabled={loading}
             style={{width:"100%",padding:"0.9rem",borderRadius:12,background:loading?"rgba(42,90,130,0.5)":"linear-gradient(135deg,#1a3a7a,#2a6aaa)",border:"1px solid #3a7aba",color:"#a8edea",fontFamily:"'Cinzel',serif",fontSize:"0.95rem",fontWeight:700,cursor:loading?"not-allowed":"pointer",letterSpacing:"0.08em",transition:"all 0.2s",marginTop:"1.8rem",marginBottom:"1rem"}}>
             {loading?"...":mode==="login"?"ENTER THE REALM":"CREATE ACCOUNT"}
