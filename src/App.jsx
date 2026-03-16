@@ -775,9 +775,7 @@ function ZenerCard({ symbol, faceDown, flash }) {
   );
 }
 
-function LeaderboardRows({ rows, currentUsername, mode }) {
-  const myIdx = rows.findIndex(r=>r.username===currentUsername);
-  const myRank = myIdx + 1;
+function LeaderboardRows({ rows, currentUsername, mode, myRank }) {
   const isXP = mode === "xp";
   return (
     <>
@@ -803,7 +801,7 @@ function LeaderboardRows({ rows, currentUsername, mode }) {
           </div>
         </div>
       ))}
-      {myRank>0&&<div style={{textAlign:"center",color:"#c0d8f0",marginTop:"1rem",fontSize:"1.1rem",fontFamily:"'Cinzel',serif",fontWeight:600}}>Your rank: #{myRank}</div>}
+      {myRank&&<div style={{textAlign:"center",color:"#c0d8f0",marginTop:"1rem",fontSize:"1.1rem",fontFamily:"'Cinzel',serif",fontWeight:600}}>{isXP ? (myRank ? `Your rank: #${myRank}` : "Play your first card to earn a rank!") : (myRank ? `Your rank: #${myRank}` : "Get a streak to earn a rank!")}</div>}
     </>
   );
 }
@@ -814,16 +812,26 @@ function Leaderboard({ currentUsername, onClose }) {
   const [strRows, setStrRows]   = useState([]);
   const [loading, setLoading]   = useState(true);
   const [err, setErr]           = useState("");
+  const [myXpRank, setMyXpRank]       = useState(null);
+  const [myStreakRank, setMyStreakRank] = useState(null);
 
   useEffect(()=>{
     (async()=>{
       try {
-        const [xp, str] = await Promise.all([
+        const [xp, str, myXp, myStr] = await Promise.all([
           sb.select("leaderboard","order=xp.desc&limit=10"),
           sb.select("leaderboard","order=best_streak.desc&limit=10"),
+          sb.select("leaderboard",`username=eq.${encodeURIComponent(currentUsername)}&select=rank,xp`, true),
+          sb.select("leaderboard",`username=eq.${encodeURIComponent(currentUsername)}&select=best_streak`, true),
         ]);
         setXpRows(xp||[]);
         setStrRows(str||[]);
+        setMyXpRank(myXp?.rank && myXp.xp > 0 ? myXp.rank : null);
+        // Calculate streak rank separately
+        if (myStr?.best_streak > 0) {
+          const strRankRow = await sb.select("leaderboard", `best_streak=gt.${myStr.best_streak}&select=username`);
+          setMyStreakRank((strRankRow?.length || 0) + 1);
+        }
       } catch(e) { setErr("Could not load leaderboard."); }
       setLoading(false);
     })();
@@ -860,7 +868,7 @@ function Leaderboard({ currentUsername, onClose }) {
         {loading&&<div style={{textAlign:"center",color:"#c0d8f0",padding:"2rem"}}>Reading the astral plane...</div>}
         {err    &&<div style={{textAlign:"center",color:"#ff6677",padding:"1rem"}}>{err}</div>}
         {!loading&&!err&&rows.length===0&&<div style={{textAlign:"center",color:"#c0d8f0",padding:"2rem"}}>No psychics yet. Be the first!</div>}
-        {!loading&&!err&&<LeaderboardRows rows={rows} currentUsername={currentUsername} mode={tab}/>}
+        {!loading&&!err&&<LeaderboardRows rows={rows} currentUsername={currentUsername} mode={tab} myRank={tab==="xp"?myXpRank:myStreakRank}/>}
 
         <button onClick={onClose} style={{display:"block",margin:"1.5rem auto 0",padding:"0.6rem 2rem",background:"linear-gradient(135deg,#1a3a6a,#2a5a9a)",border:"1px solid #3a6aaa",borderRadius:10,color:"#a8edea",fontFamily:"'Cinzel',serif",cursor:"pointer",fontSize:"0.9rem"}}>Close</button>
       </div>
