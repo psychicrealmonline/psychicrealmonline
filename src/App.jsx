@@ -801,7 +801,11 @@ function LeaderboardRows({ rows, currentUsername, mode, myRank }) {
           </div>
         </div>
       ))}
-      {myRank&&<div style={{textAlign:"center",color:"#c0d8f0",marginTop:"1rem",fontSize:"1.1rem",fontFamily:"'Cinzel',serif",fontWeight:600}}>{isXP ? (myRank ? `Your rank: #${myRank}` : "Play your first card to earn a rank!") : (myRank ? `Your rank: #${myRank}` : "Get a streak to earn a rank!")}</div>}
+      <div style={{textAlign:"center",color:"#c0d8f0",marginTop:"1rem",fontSize:"1.1rem",fontFamily:"'Cinzel',serif",fontWeight:600}}>
+        {isXP
+          ? (myRank ? `Your rank: #${myRank}` : "Play your first card to earn a rank!")
+          : (myRank ? `Your rank: #${myRank}` : "Get a streak to earn a rank!")}
+      </div>
     </>
   );
 }
