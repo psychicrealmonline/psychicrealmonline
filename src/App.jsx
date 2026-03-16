@@ -821,12 +821,12 @@ function Leaderboard({ currentUsername, onClose }) {
         const [xp, str, myXp, myStr] = await Promise.all([
           sb.select("leaderboard","order=xp.desc&limit=10"),
           sb.select("leaderboard","order=best_streak.desc&limit=10"),
-          sb.select("leaderboard",`username=eq.${encodeURIComponent(currentUsername)}&select=rank,xp`, true),
+          sb.select("leaderboard",`username=eq.${encodeURIComponent(currentUsername)}&select=rank,xp,total_correct`, true),
           sb.select("leaderboard",`username=eq.${encodeURIComponent(currentUsername)}&select=best_streak`, true),
         ]);
         setXpRows(xp||[]);
         setStrRows(str||[]);
-        setMyXpRank(myXp?.rank && myXp.xp > 0 ? myXp.rank : null);
+        setMyXpRank(myXp?.rank && myXp.total_correct > 0 ? myXp.rank : null);
         // Calculate streak rank separately
         if (myStr?.best_streak > 0) {
           const strRankRow = await sb.select("leaderboard", `best_streak=gt.${myStr.best_streak}&select=username`);
